@@ -1,13 +1,787 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>My Google AI Studio App</title>
-  </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
-  </body>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Transition Ritual</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <!-- Lucide Icons CDN -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- Confetti CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+        .font-mono {
+            font-family: 'JetBrains Mono', monospace;
+        }
+        /* Custom scrollbar */
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #f1f5f9;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 10px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
+        }
+        /* Animations */
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(-10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .animate-fadeIn {
+            animation: fadeIn 0.3s ease-out forwards;
+        }
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateX(-20px); }
+            to { opacity: 1; transform: translateX(0); }
+        }
+        .animate-slideIn {
+            animation: slideIn 0.3s ease-out forwards;
+        }
+        @keyframes scaleIn {
+            from { opacity: 0; scale: 0.9; }
+            to { opacity: 1; scale: 1; }
+        }
+        .animate-scaleIn {
+            animation: scaleIn 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+        }
+        /* Utility */
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .no-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-800 transition-colors duration-500 min-h-screen">
+    <div id="app" class="p-4 md:p-8 flex flex-col items-center justify-center min-h-screen">
+        <!-- Content will be injected here -->
+    </div>
+
+    <script>
+        // --- State Management ---
+        const state = {
+            view: localStorage.getItem('transition_view') || 'start',
+            priorities: JSON.parse(localStorage.getItem('transition_priorities')) || ['', '', ''],
+            achievements: JSON.parse(localStorage.getItem('transition_achievements')) || ['', '', ''],
+            checklist: JSON.parse(localStorage.getItem('transition_checklist')) || {
+                tabs: false,
+                desk: false,
+                clothes: false,
+                movement: false,
+            },
+            history: JSON.parse(localStorage.getItem('transition_history')) || [],
+            streak: parseInt(localStorage.getItem('transition_streak')) || 0,
+            lastLogOffDate: localStorage.getItem('transition_last_logoff') || '',
+            showSettings: false,
+            settingsView: 'menu', // 'menu' or 'history'
+            selectedHistoryDate: null,
+            calendarMonth: new Date(),
+            isResetConfirming: false,
+            isMuted: localStorage.getItem('transition_muted') === 'true',
+            volume: parseFloat(localStorage.getItem('transition_volume')) || 0.5,
+            selectedSound: localStorage.getItem('transition_sound') || 'beep',
+            timerMode: 'focus', // 'focus' or 'rest'
+            timeLeft: 25 * 60,
+            isTimerActive: false,
+            timerInterval: null
+        };
+
+        // --- Persistence ---
+        function saveState() {
+            localStorage.setItem('transition_view', state.view);
+            localStorage.setItem('transition_priorities', JSON.stringify(state.priorities));
+            localStorage.setItem('transition_achievements', JSON.stringify(state.achievements));
+            localStorage.setItem('transition_checklist', JSON.stringify(state.checklist));
+            localStorage.setItem('transition_history', JSON.stringify(state.history));
+            localStorage.setItem('transition_streak', state.streak.toString());
+            localStorage.setItem('transition_last_logoff', state.lastLogOffDate);
+            localStorage.setItem('transition_muted', state.isMuted.toString());
+            localStorage.setItem('transition_volume', state.volume.toString());
+            localStorage.setItem('transition_sound', state.selectedSound);
+        }
+
+        // --- Helpers ---
+        const getLocalDateKey = (date) => {
+            const year = date.getFullYear();
+            const month = (date.getMonth() + 1).toString().padStart(2, '0');
+            const day = date.getDate().toString().padStart(2, '0');
+            return `${year}-${month}-${day}`;
+        };
+
+        const parseLocalDate = (dateStr) => {
+            const [y, m, d] = dateStr.split('-').map(Number);
+            return new Date(y, m - 1, d);
+        };
+
+        const formatTime = (seconds) => {
+            const mins = Math.floor(seconds / 60);
+            const secs = seconds % 60;
+            return `${mins}:${secs.toString().padStart(2, '0')}`;
+        };
+
+        // --- Audio Logic ---
+        function playAlertSound(testSound) {
+            if (state.isMuted && !testSound) return;
+            
+            try {
+                const AudioContext = window.AudioContext || window.webkitAudioContext;
+                const ctx = new AudioContext();
+                const soundType = testSound || state.selectedSound;
+                const now = ctx.currentTime;
+                const gain = ctx.createGain();
+                gain.connect(ctx.destination);
+                gain.gain.setValueAtTime(state.volume, now);
+
+                if (soundType === 'beep') {
+                    const osc = ctx.createOscillator();
+                    osc.connect(gain);
+                    osc.type = 'sine';
+                    osc.frequency.setValueAtTime(440, now);
+                    gain.gain.exponentialRampToValueAtTime(0.01, now + 1);
+                    osc.start(now);
+                    osc.stop(now + 1);
+                } else if (soundType === 'chime') {
+                    const osc1 = ctx.createOscillator();
+                    const osc2 = ctx.createOscillator();
+                    osc1.connect(gain);
+                    osc2.connect(gain);
+                    osc1.type = 'sine';
+                    osc2.type = 'sine';
+                    osc1.frequency.setValueAtTime(660, now);
+                    osc2.frequency.setValueAtTime(880, now + 0.1);
+                    gain.gain.exponentialRampToValueAtTime(0.01, now + 1.5);
+                    osc1.start(now);
+                    osc1.stop(now + 1.5);
+                    osc2.start(now + 0.1);
+                    osc2.stop(now + 1.5);
+                } else if (soundType === 'digital') {
+                    const osc = ctx.createOscillator();
+                    osc.connect(gain);
+                    osc.type = 'square';
+                    osc.frequency.setValueAtTime(330, now);
+                    osc.frequency.setValueAtTime(440, now + 0.1);
+                    osc.frequency.setValueAtTime(330, now + 0.2);
+                    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.5);
+                    osc.start(now);
+                    osc.stop(now + 0.5);
+                } else if (soundType === 'soft') {
+                    const osc = ctx.createOscillator();
+                    osc.connect(gain);
+                    osc.type = 'triangle';
+                    osc.frequency.setValueAtTime(220, now);
+                    gain.gain.setValueAtTime(0, now);
+                    gain.gain.linearRampToValueAtTime(state.volume, now + 0.2);
+                    gain.gain.exponentialRampToValueAtTime(0.01, now + 2);
+                    osc.start(now);
+                    osc.stop(now + 2);
+                }
+            } catch (e) {
+                console.log('Audio alert failed', e);
+            }
+        }
+
+        // --- Handlers ---
+        function updatePriority(index, value) {
+            state.priorities[index] = value;
+            saveState();
+        }
+
+        function updateAchievement(index, value) {
+            state.achievements[index] = value;
+            saveState();
+        }
+
+        function toggleCheck(key) {
+            state.checklist[key] = !state.checklist[key];
+            saveState();
+            render();
+        }
+
+        function toggleTimer() {
+            if (state.isTimerActive) {
+                clearInterval(state.timerInterval);
+                state.isTimerActive = false;
+            } else {
+                state.isTimerActive = true;
+                state.timerInterval = setInterval(() => {
+                    state.timeLeft--;
+                    if (state.timeLeft <= 0) {
+                        clearInterval(state.timerInterval);
+                        state.isTimerActive = false;
+                        state.timeLeft = 0;
+                        playAlertSound();
+                        render();
+                    } else {
+                        updateTimerDisplay();
+                    }
+                }, 1000);
+            }
+            render();
+        }
+
+        function resetTimer(mode = state.timerMode) {
+            clearInterval(state.timerInterval);
+            state.isTimerActive = false;
+            state.timerMode = mode;
+            state.timeLeft = mode === 'focus' ? 25 * 60 : 5 * 60;
+            render();
+        }
+
+        function handleLogOff() {
+            const now = new Date();
+            const isBefore4PM = now.getHours() < 16 || (now.getHours() === 16 && now.getMinutes() === 0);
+            const todayStr = getLocalDateKey(now);
+            const displayDate = now.toLocaleDateString('en-US', {
+                weekday: 'long',
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric',
+            });
+
+            if (state.achievements.some(a => a.trim() !== '')) {
+                const newHistoryEntry = {
+                    date: todayStr,
+                    displayDate: displayDate,
+                    wins: state.achievements.filter(a => a.trim() !== ''),
+                    onTime: isBefore4PM,
+                    timestamp: now.toISOString()
+                };
+
+                state.history = [newHistoryEntry, ...state.history.filter(e => e.date !== todayStr)];
+
+                if (isBefore4PM) {
+                    if (state.lastLogOffDate) {
+                        const lastDate = parseLocalDate(state.lastLogOffDate);
+                        const diffTime = Math.abs(now.getTime() - lastDate.getTime());
+                        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                        
+                        let isConsecutive = diffDays === 1;
+                        const day = now.getDay();
+                        if (!isConsecutive) {
+                            if (day === 1) isConsecutive = diffDays <= 3;
+                            if (day === 0) isConsecutive = diffDays <= 2;
+                        }
+
+                        if (isConsecutive) {
+                            state.streak++;
+                        } else if (todayStr !== state.lastLogOffDate) {
+                            state.streak = 1;
+                        }
+                    } else {
+                        state.streak = 1;
+                    }
+                } else {
+                    state.streak = 0;
+                }
+                state.lastLogOffDate = todayStr;
+            }
+
+            confetti({
+                particleCount: 150,
+                spread: 70,
+                origin: { y: 0.6 },
+                colors: ['#10b981', '#3b82f6', '#60a5fa', '#d1fae5']
+            });
+
+            state.view = 'logged-off';
+            state.achievements = ['', '', ''];
+            state.checklist = { tabs: false, desk: false, clothes: false, movement: false };
+            saveState();
+            render();
+        }
+
+        function resetAllData() {
+            localStorage.clear();
+            window.location.reload();
+        }
+
+        function deleteHistoryEntry(date) {
+            state.history = state.history.filter(e => e.date !== date);
+            if (state.selectedHistoryDate === date) state.selectedHistoryDate = null;
+            saveState();
+            render();
+        }
+
+        // --- Rendering ---
+        function updateTimerDisplay() {
+            const timerText = document.getElementById('timer-text');
+            const timerCircle = document.getElementById('timer-circle');
+            if (timerText) timerText.innerText = formatTime(state.timeLeft);
+            if (timerCircle) {
+                const total = state.timerMode === 'focus' ? 25 * 60 : 5 * 60;
+                const offset = (2 * Math.PI * 88) * (1 - state.timeLeft / total);
+                timerCircle.style.strokeDashoffset = offset;
+            }
+        }
+
+        function render() {
+            const app = document.getElementById('app');
+            const todayDate = new Date().toLocaleDateString('en-US', {
+                weekday: 'long',
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric',
+            });
+
+            let content = `
+                <div class="max-w-2xl w-full space-y-8 animate-fadeIn">
+                    <!-- Header -->
+                    <header class="text-center space-y-2">
+                        <div class="flex justify-end px-2">
+                            <button onclick="openSettings()" class="p-2 text-slate-400 hover:text-slate-600 transition-colors bg-white rounded-full shadow-sm border border-slate-100">
+                                <i data-lucide="settings" size="20"></i>
+                            </button>
+                        </div>
+                        <div class="flex items-center justify-center gap-3 animate-fadeIn">
+                            ${state.view === 'start' 
+                                ? '<i data-lucide="sunrise" class="text-amber-400 w-10 h-10"></i>' 
+                                : '<i data-lucide="sunset" class="text-blue-400 w-10 h-10"></i>'}
+                            <h1 class="text-4xl md:text-5xl font-light tracking-tight text-slate-900">
+                                ${state.view === 'start' ? 'Start My Day' : 'Transition Ritual'}
+                            </h1>
+                        </div>
+                        <div class="space-y-1">
+                            ${state.view === 'start' ? `
+                                <div class="flex flex-col items-center gap-6 pt-6">
+                                    <p class="text-3xl md:text-5xl font-black text-slate-900 tracking-tighter">${todayDate}</p>
+                                    <div class="inline-flex items-center gap-3 px-8 py-4 rounded-3xl text-2xl md:text-3xl font-black border shadow-md transition-all ${state.streak > 0 ? 'bg-amber-50 text-amber-600 border-amber-100 shadow-amber-100/50' : 'bg-slate-50 text-slate-400 border-slate-100'}">
+                                        <i data-lucide="trophy" size="32" class="${state.streak > 0 ? 'text-amber-500' : 'text-slate-400'}"></i>
+                                        ${state.streak} Day Streak
+                                    </div>
+                                </div>
+                            ` : ''}
+                        </div>
+                    </header>
+
+                    <main class="space-y-6">
+                        ${renderView()}
+                    </main>
+
+                    <footer class="text-center text-slate-400 text-xs font-light py-4 px-6 leading-relaxed">
+                        "Your energy is your most valuable currency. Spend it wisely, and remember to recharge with intention."
+                    </footer>
+                </div>
+
+                <!-- Modals -->
+                ${renderSettingsModal()}
+            `;
+
+            app.innerHTML = content;
+            lucide.createIcons();
+            
+            // Re-attach timer logic if active
+            if (state.view === 'start') updateTimerDisplay();
+        }
+
+        function renderView() {
+            if (state.view === 'start') {
+                return `
+                    <div class="animate-slideIn">
+                        <!-- Focus for the Day -->
+                        <div class="bg-white rounded-3xl shadow-sm border border-slate-100 p-6 mb-6">
+                            <div class="flex items-center gap-2 mb-4 text-blue-600">
+                                <i data-lucide="list-todo" size="20"></i>
+                                <h2 class="font-bold uppercase tracking-wider text-xs">Focus for the Day</h2>
+                            </div>
+                            <div class="flex justify-between items-center mb-2">
+                                <p class="text-xs text-slate-400 italic">Carried over from your last Parking Lot</p>
+                                <button onclick="clearPriorities()" class="text-xs text-slate-400 hover:text-red-500 transition-colors flex items-center gap-1">
+                                    <i data-lucide="trash-2" size="12"></i> Clear
+                                </button>
+                            </div>
+                            <div class="space-y-3">
+                                ${state.priorities.map((p, i) => `
+                                    <input type="text" value="${p}" oninput="updatePriority(${i}, this.value)" placeholder="Priority ${i + 1}..." class="w-full px-4 py-3 bg-blue-50 border-transparent focus:bg-white focus:border-blue-200 focus:ring-4 focus:ring-blue-50 rounded-xl text-sm font-medium transition-all outline-none text-blue-900 placeholder:text-blue-300">
+                                `).join('')}
+                            </div>
+                        </div>
+
+                        <!-- Focus Timer -->
+                        <div class="bg-white rounded-3xl shadow-sm border border-slate-100 p-6 mb-6">
+                            <div class="flex items-center gap-2 mb-4 text-emerald-600">
+                                <i data-lucide="focus" size="20"></i>
+                                <h2 class="font-bold uppercase tracking-wider text-xs">Focus Timer</h2>
+                            </div>
+                            <div class="flex flex-col items-center space-y-6 py-4">
+                                <div class="relative w-48 h-48 flex items-center justify-center">
+                                    <svg class="absolute w-full h-full -rotate-90">
+                                        <circle cx="96" cy="96" r="88" fill="none" stroke="#f1f5f9" stroke-width="8" />
+                                        <circle id="timer-circle" cx="96" cy="96" r="88" fill="none" stroke="${state.timerMode === 'focus' ? '#10b981' : '#3b82f6'}" stroke-width="8" stroke-dasharray="552.92" stroke-dashoffset="552.92" style="transition: stroke-dashoffset 1s linear, stroke 0.3s ease;" />
+                                    </svg>
+                                    <div id="timer-text" class="text-4xl font-mono font-bold text-slate-700">
+                                        ${formatTime(state.timeLeft)}
+                                    </div>
+                                </div>
+                                <div class="flex items-center gap-4">
+                                    <button onclick="resetTimer('focus')" class="px-4 py-2 rounded-full text-sm font-medium transition-all ${state.timerMode === 'focus' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}">Focus (25m)</button>
+                                    <button onclick="resetTimer('rest')" class="px-4 py-2 rounded-full text-sm font-medium transition-all ${state.timerMode === 'rest' ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-500'}">Rest (5m)</button>
+                                </div>
+                                <div class="flex items-center gap-6">
+                                    <button onclick="toggleTimer()" class="w-14 h-14 rounded-full flex items-center justify-center transition-all shadow-md ${state.isTimerActive ? 'bg-slate-200 text-slate-700' : 'bg-slate-900 text-white'}">
+                                        <i data-lucide="${state.isTimerActive ? 'pause' : 'play'}" size="24" class="${state.isTimerActive ? '' : 'ml-1'}"></i>
+                                    </button>
+                                    <button onclick="resetTimer()" class="w-10 h-10 rounded-full bg-slate-100 text-slate-500 flex items-center justify-center hover:bg-slate-200 transition-all">
+                                        <i data-lucide="rotate-ccw" size="18"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <button onclick="setView('end')" class="w-full py-5 bg-slate-900 text-white rounded-2xl font-bold text-lg tracking-wide hover:bg-slate-800 active:scale-95 transition-all flex items-center justify-center gap-3 shadow-lg shadow-slate-300">
+                            Ready to Log Off at 4 PM <i data-lucide="arrow-right" size="20"></i>
+                        </button>
+                    </div>
+                `;
+            } else if (state.view === 'end') {
+                return `
+                    <div class="animate-slideIn">
+                        <!-- Daily Recap -->
+                        <div class="bg-white rounded-3xl shadow-sm border border-slate-100 p-6 mb-6">
+                            <div class="flex items-center gap-2 mb-4 text-emerald-600">
+                                <i data-lucide="check-circle-2" size="20"></i>
+                                <h2 class="font-bold uppercase tracking-wider text-xs">The Daily Recap</h2>
+                            </div>
+                            <p class="text-sm text-slate-400 mb-2">List 3 things you achieved today.</p>
+                            <div class="space-y-3">
+                                ${state.achievements.map((a, i) => `
+                                    <input type="text" value="${a}" oninput="updateAchievement(${i}, this.value)" placeholder="Achievement ${i + 1}..." class="w-full px-4 py-3 bg-emerald-50 border-transparent focus:bg-white focus:border-emerald-200 focus:ring-4 focus:ring-emerald-50 rounded-xl text-sm font-medium transition-all outline-none text-emerald-900 placeholder:text-emerald-300">
+                                `).join('')}
+                            </div>
+                        </div>
+
+                        <!-- Parking Lot -->
+                        <div class="bg-white rounded-3xl shadow-sm border border-slate-100 p-6 mb-6">
+                            <div class="flex items-center gap-2 mb-4 text-blue-600">
+                                <i data-lucide="list-todo" size="20"></i>
+                                <h2 class="font-bold uppercase tracking-wider text-xs">The Parking Lot</h2>
+                            </div>
+                            <div class="flex justify-between items-center mb-2">
+                                <p class="text-sm text-slate-400">Top 3 priorities for tomorrow.</p>
+                                <button onclick="clearPriorities()" class="text-xs text-slate-400 hover:text-red-500 transition-colors flex items-center gap-1">
+                                    <i data-lucide="trash-2" size="12"></i> Clear
+                                </button>
+                            </div>
+                            <div class="space-y-3">
+                                ${state.priorities.map((p, i) => `
+                                    <input type="text" value="${p}" oninput="updatePriority(${i}, this.value)" placeholder="Priority ${i + 1}..." class="w-full px-4 py-3 bg-blue-50 border-transparent focus:bg-white focus:border-blue-200 focus:ring-4 focus:ring-blue-50 rounded-xl text-sm font-medium transition-all outline-none text-blue-900 placeholder:text-blue-300">
+                                `).join('')}
+                            </div>
+                        </div>
+
+                        <!-- Ritual Checklist -->
+                        <div class="bg-white rounded-3xl shadow-sm border border-slate-100 p-6 mb-6">
+                            <div class="flex items-center gap-2 mb-4 text-slate-600">
+                                <i data-lucide="rotate-ccw" size="20"></i>
+                                <h2 class="font-bold uppercase tracking-wider text-xs">The Ritual Checklist</h2>
+                            </div>
+                            <div class="grid gap-3">
+                                ${[
+                                    { id: 'tabs', label: 'Close all Workday/Email/Teams tabs' },
+                                    { id: 'desk', label: 'Clear the physical desk (hide the laptop)' },
+                                    { id: 'clothes', label: 'Change into "home clothes" (the hoodie)' },
+                                    { id: 'movement', label: '5-minute movement (stretch or walk)' },
+                                ].map(item => `
+                                    <label class="flex items-center gap-3 p-4 rounded-2xl cursor-pointer transition-all border ${state.checklist[item.id] ? 'bg-emerald-50 border-emerald-100 text-emerald-700' : 'bg-slate-50 border-transparent text-slate-600 hover:bg-slate-100'}">
+                                        <input type="checkbox" class="w-5 h-5 rounded-full border-slate-300 text-emerald-500 focus:ring-emerald-500" ${state.checklist[item.id] ? 'checked' : ''} onchange="toggleCheck('${item.id}')">
+                                        <span class="text-sm font-medium">${item.label}</span>
+                                    </label>
+                                `).join('')}
+                            </div>
+                        </div>
+
+                        <button onclick="handleLogOff()" class="w-full py-5 bg-slate-900 text-white rounded-2xl font-bold text-xl tracking-widest hover:bg-slate-800 active:scale-95 transition-all flex items-center justify-center gap-3 shadow-lg shadow-slate-300">
+                            <i data-lucide="log-out" size="24"></i> LOG OFF
+                        </button>
+                    </div>
+                `;
+            } else if (state.view === 'logged-off') {
+                return `
+                    <div class="bg-white rounded-3xl shadow-xl p-10 text-center space-y-6 border border-emerald-100 animate-scaleIn">
+                        <div class="w-20 h-20 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-4">
+                            <i data-lucide="check-circle-2" size="40"></i>
+                        </div>
+                        <h2 class="text-3xl font-bold text-slate-900">Work is done.</h2>
+                        <p class="text-xl text-slate-600">You are now <span class="text-emerald-600 font-semibold underline decoration-emerald-200 underline-offset-4">Home</span>.</p>
+                        
+                        ${state.streak > 0 ? `
+                            <div class="flex flex-col items-center gap-2 py-2">
+                                <div class="flex items-center gap-2 px-4 py-2 bg-amber-50 text-amber-700 rounded-2xl border border-amber-100 font-bold">
+                                    <i data-lucide="trophy" size="20" class="text-amber-500"></i>
+                                    <span>${state.streak} Day Streak!</span>
+                                </div>
+                                <p class="text-[10px] text-amber-600 uppercase tracking-widest font-bold">Keep it up</p>
+                            </div>
+                        ` : ''}
+
+                        <p class="text-slate-400 max-w-xs mx-auto">Your priorities for tomorrow are safely stored in the Parking Lot.</p>
+                        
+                        <div class="pt-6">
+                            <button onclick="setView('start')" class="px-8 py-3 bg-slate-900 text-white rounded-xl font-bold hover:bg-slate-800 transition-all">
+                                Start New Day
+                            </button>
+                        </div>
+                    </div>
+                `;
+            }
+        }
+
+        function renderSettingsModal() {
+            if (!state.showSettings) return '';
+            
+            return `
+                <div class="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4 transition-all duration-300" onclick="closeSettings()">
+                    <div class="bg-white w-full max-w-lg rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[80vh] transition-all duration-300 transform scale-100" onclick="event.stopPropagation()">
+                        <div class="p-6 border-b border-slate-100 flex items-center justify-between">
+                            <div class="flex items-center gap-2 text-slate-800">
+                                <i data-lucide="${state.settingsView === 'menu' ? 'settings' : 'history'}" size="20"></i>
+                                <h2 class="text-xl font-semibold">
+                                    ${state.settingsView === 'menu' ? 'Settings' : 'Historical Archive'}
+                                </h2>
+                            </div>
+                            <button onclick="closeSettings()" class="p-2 hover:bg-slate-100 rounded-full transition-colors text-slate-400">
+                                <i data-lucide="x" size="20"></i>
+                            </button>
+                        </div>
+
+                        <div class="flex-1 overflow-y-auto p-6">
+                            ${state.settingsView === 'menu' ? renderSettingsMenu() : renderHistoryArchive()}
+                        </div>
+
+                        <div class="p-6 bg-slate-50 flex gap-3">
+                            ${state.settingsView === 'history' ? `
+                                <button onclick="setSettingsView('menu')" class="flex-1 py-3 bg-white text-slate-600 border border-slate-200 rounded-xl font-bold hover:bg-slate-50 transition-all text-sm">
+                                    Back to Settings
+                                </button>
+                            ` : ''}
+                            <button onclick="closeSettings()" class="flex-1 py-3 bg-slate-900 text-white rounded-xl font-bold hover:bg-slate-800 transition-all">
+                                Close
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderSettingsMenu() {
+            return `
+                <div class="space-y-4">
+                    <button onclick="setSettingsView('history')" class="w-full flex items-center justify-between p-4 bg-slate-50 hover:bg-slate-100 rounded-2xl transition-all group">
+                        <div class="flex items-center gap-3">
+                            <div class="w-10 h-10 bg-blue-100 text-blue-600 rounded-xl flex items-center justify-center">
+                                <i data-lucide="history" size="20"></i>
+                            </div>
+                            <div class="text-left">
+                                <p class="font-bold text-slate-900">View My History</p>
+                                <p class="text-xs text-slate-500">See your past daily recaps and streaks</p>
+                            </div>
+                        </div>
+                        <i data-lucide="chevron-right" size="20" class="text-slate-300 group-hover:text-slate-500 transition-colors"></i>
+                    </button>
+
+                    <div class="pt-4 border-t border-slate-100 space-y-4">
+                        <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1 px-1">Timer Notifications</p>
+                        
+                        <div class="flex items-center justify-between p-4 bg-slate-50 rounded-2xl">
+                            <div class="flex items-center gap-3">
+                                <div class="w-10 h-10 rounded-xl flex items-center justify-center transition-colors ${state.isMuted ? 'bg-red-50 text-red-500' : 'bg-emerald-50 text-emerald-500'}">
+                                    <i data-lucide="${state.isMuted ? 'volume-x' : 'volume-2'}" size="20"></i>
+                                </div>
+                                <div>
+                                    <p class="font-bold text-slate-900">Mute Notifications</p>
+                                    <p class="text-xs text-slate-500">${state.isMuted ? 'Alerts are silenced' : 'Alerts will play'}</p>
+                                </div>
+                            </div>
+                            <button onclick="toggleMute()" class="w-12 h-6 rounded-full transition-colors relative ${state.isMuted ? 'bg-red-500' : 'bg-slate-200'}">
+                                <div class="absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${state.isMuted ? 'left-7' : 'left-1'}"></div>
+                            </button>
+                        </div>
+
+                        <div class="p-4 bg-slate-50 rounded-2xl space-y-3">
+                            <div class="flex items-center justify-between">
+                                <div class="flex items-center gap-2 text-slate-700">
+                                    <i data-lucide="volume-2" size="16"></i>
+                                    <span class="text-sm font-bold">Alert Volume</span>
+                                </div>
+                                <span class="text-xs font-mono text-slate-400">${Math.round(state.volume * 100)}%</span>
+                            </div>
+                            <input type="range" min="0" max="1" step="0.01" value="${state.volume}" oninput="updateVolume(this.value)" class="w-full h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-slate-900">
+                        </div>
+
+                        <div class="p-4 bg-slate-50 rounded-2xl space-y-3">
+                            <div class="flex items-center justify-between">
+                                <div class="flex items-center gap-2 text-slate-700">
+                                    <i data-lucide="bell" size="16"></i>
+                                    <span class="text-sm font-bold">Alert Sound</span>
+                                </div>
+                                <button onclick="playAlertSound(state.selectedSound)" class="text-[10px] font-bold text-blue-600 hover:text-blue-700 uppercase tracking-wider">Test Sound</button>
+                            </div>
+                            <div class="grid grid-cols-2 gap-2">
+                                ${[
+                                    { id: 'beep', label: 'Classic Beep', icon: 'bell' },
+                                    { id: 'chime', label: 'Melodic Chime', icon: 'music' },
+                                    { id: 'digital', label: 'Digital Pulse', icon: 'focus' },
+                                    { id: 'soft', label: 'Soft Triangle', icon: 'moon' },
+                                ].map(sound => `
+                                    <button onclick="setSound('${sound.id}')" class="flex items-center gap-2 p-3 rounded-xl border text-left transition-all ${state.selectedSound === sound.id ? 'bg-white border-blue-200 shadow-sm text-blue-600' : 'bg-slate-100 border-transparent text-slate-500 hover:bg-slate-200'}">
+                                        <i data-lucide="${sound.icon}" size="14"></i>
+                                        <span class="text-xs font-medium">${sound.label}</span>
+                                    </button>
+                                `).join('')}
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="pt-4 border-t border-slate-100">
+                        <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3 px-1">Data Management</p>
+                        ${state.isResetConfirming ? `
+                            <div class="space-y-3 p-4 bg-red-50 rounded-2xl border border-red-100">
+                                <p class="text-sm text-red-700 font-medium">Are you absolutely sure? This will delete all your history, streaks, and settings.</p>
+                                <div class="flex gap-2">
+                                    <button onclick="resetAllData()" class="flex-1 py-2 bg-red-600 text-white rounded-xl font-bold hover:bg-red-700 transition-all text-xs">Yes, Reset Everything</button>
+                                    <button onclick="cancelReset()" class="px-4 py-2 bg-white text-slate-500 border border-slate-200 rounded-xl font-bold hover:bg-slate-50 transition-all text-xs">Cancel</button>
+                                </div>
+                            </div>
+                        ` : `
+                            <button onclick="confirmReset()" class="w-full flex items-center gap-3 p-4 text-red-500 hover:bg-red-50 rounded-2xl transition-all group">
+                                <div class="w-10 h-10 bg-red-50 text-red-500 rounded-xl flex items-center justify-center group-hover:bg-red-100 transition-colors">
+                                    <i data-lucide="trash-2" size="20"></i>
+                                </div>
+                                <div class="text-left">
+                                    <p class="font-bold">Reset All Data</p>
+                                    <p class="text-xs text-red-400">Permanently clear all application data</p>
+                                </div>
+                            </button>
+                        `}
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderHistoryArchive() {
+            const year = state.calendarMonth.getFullYear();
+            const month = state.calendarMonth.getMonth();
+            const firstDay = new Date(year, month, 1).getDay();
+            const daysInMonth = new Date(year, month + 1, 0).getDate();
+            const monthLabel = state.calendarMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+
+            let calendarDays = [];
+            for (let i = 0; i < firstDay; i++) calendarDays.push('<div class="aspect-square"></div>');
+            for (let d = 1; d <= daysInMonth; d++) {
+                const dateObj = new Date(year, month, d);
+                const dateStr = getLocalDateKey(dateObj);
+                const entry = state.history.find(e => e.date === dateStr);
+                const isWeekend = dateObj.getDay() === 0 || dateObj.getDay() === 6;
+                
+                let bgColor = 'bg-white';
+                if (entry) bgColor = entry.onTime ? 'bg-emerald-500 text-white' : 'bg-red-500 text-white';
+                else if (isWeekend) bgColor = 'bg-slate-200';
+
+                calendarDays.push(`
+                    <button onclick="${entry ? `selectHistoryDate('${dateStr}')` : ''}" class="aspect-square flex items-center justify-center text-[10px] rounded-lg transition-all ${bgColor} ${entry ? 'hover:scale-110 cursor-pointer shadow-sm' : 'cursor-default'}">
+                        ${d}
+                    </button>
+                `);
+            }
+
+            const selectedEntry = state.history.find(e => e.date === state.selectedHistoryDate);
+
+            return `
+                <div class="space-y-6 animate-fadeIn">
+                    <!-- Calendar View -->
+                    <div class="bg-slate-50 rounded-2xl p-4 space-y-4">
+                        <div class="flex items-center justify-between mb-2">
+                            <h3 class="text-sm font-bold text-slate-700">${monthLabel}</h3>
+                            <div class="flex gap-1">
+                                <button onclick="changeMonth(-1)" class="p-1 hover:bg-white rounded transition-colors"><i data-lucide="chevron-left" size="16"></i></button>
+                                <button onclick="changeMonth(1)" class="p-1 hover:bg-white rounded transition-colors"><i data-lucide="chevron-right" size="16"></i></button>
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-7 gap-1 text-center">
+                            ${['S', 'M', 'T', 'W', 'T', 'F', 'S'].map(d => `<div class="text-[10px] font-bold text-slate-400 py-1">${d}</div>`).join('')}
+                            ${calendarDays.join('')}
+                        </div>
+                    </div>
+
+                    <!-- Selected Entry Detail -->
+                    ${state.selectedHistoryDate ? `
+                        <div class="p-4 bg-blue-50 rounded-2xl border border-blue-100 space-y-3 animate-fadeIn">
+                            <div class="flex items-center justify-between">
+                                <h4 class="text-xs font-bold text-blue-700">${selectedEntry?.displayDate}</h4>
+                                <button onclick="selectHistoryDate(null)" class="text-blue-400"><i data-lucide="x" size="14"></i></button>
+                            </div>
+                            <ul class="space-y-1">
+                                ${selectedEntry?.wins.map(win => `<li class="text-sm text-blue-900 flex items-start gap-2"><span class="w-1 h-1 rounded-full bg-blue-400 mt-2 shrink-0"></span>${win}</li>`).join('')}
+                            </ul>
+                        </div>
+                    ` : ''}
+
+                    <!-- History List -->
+                    <div class="space-y-4">
+                        <h3 class="text-xs font-bold text-slate-400 uppercase tracking-wider">Recent Entries</h3>
+                        ${state.history.length === 0 ? `
+                            <div class="text-center py-10 space-y-3">
+                                <div class="w-16 h-16 bg-slate-50 text-slate-300 rounded-full flex items-center justify-center mx-auto">
+                                    <i data-lucide="history" size="32"></i>
+                                </div>
+                                <p class="text-slate-400">No entries yet. Your wins will appear here after you log off.</p>
+                            </div>
+                        ` : state.history.map((entry, idx) => `
+                            <div onclick="selectHistoryDate('${entry.date}')" class="group relative space-y-3 border-b border-slate-50 pb-6 last:border-0 cursor-pointer transition-all hover:bg-slate-50/50 p-2 rounded-xl ${state.selectedHistoryDate === entry.date ? 'bg-blue-50/50 border-blue-100' : ''}">
+                                <div class="flex items-center justify-between">
+                                    <div class="flex items-center gap-2">
+                                        <h3 class="text-sm font-bold text-slate-900">${entry.displayDate}</h3>
+                                        <span class="w-2 h-2 rounded-full ${entry.onTime ? 'bg-emerald-500' : 'bg-red-500'}"></span>
+                                    </div>
+                                    <div class="flex items-center gap-2">
+                                        <button onclick="event.stopPropagation(); deleteHistoryEntry('${entry.date}')" class="p-1.5 text-slate-300 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100">
+                                            <i data-lucide="trash-2" size="14"></i>
+                                        </button>
+                                        <i data-lucide="trophy" size="14" class="text-amber-400"></i>
+                                    </div>
+                                </div>
+                                <ul class="space-y-2">
+                                    ${entry.wins.map(win => `<li class="flex items-start gap-3 text-sm text-slate-600"><span class="w-1.5 h-1.5 rounded-full bg-emerald-400 mt-1.5 shrink-0"></span>${win}</li>`).join('')}
+                                </ul>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+            `;
+        }
+
+        // --- Global Actions ---
+        window.setView = (v) => { state.view = v; saveState(); render(); };
+        window.openSettings = () => { state.showSettings = true; state.settingsView = 'menu'; render(); };
+        window.closeSettings = () => { state.showSettings = false; render(); };
+        window.setSettingsView = (v) => { state.settingsView = v; render(); };
+        window.clearPriorities = () => { state.priorities = ['', '', '']; saveState(); render(); };
+        window.toggleMute = () => { state.isMuted = !state.isMuted; saveState(); render(); };
+        window.updateVolume = (v) => { state.volume = parseFloat(v); saveState(); render(); };
+        window.setSound = (s) => { state.selectedSound = s; playAlertSound(s); saveState(); render(); };
+        window.confirmReset = () => { state.isResetConfirming = true; render(); };
+        window.cancelReset = () => { state.isResetConfirming = false; render(); };
+        window.changeMonth = (dir) => { state.calendarMonth = new Date(state.calendarMonth.getFullYear(), state.calendarMonth.getMonth() + dir, 1); render(); };
+        window.selectHistoryDate = (d) => { state.selectedHistoryDate = d; render(); };
+
+        // --- Initialization ---
+        render();
+    </script>
+</body>
 </html>
+
 
